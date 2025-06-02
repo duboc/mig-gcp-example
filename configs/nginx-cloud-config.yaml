@@ -1,0 +1,179 @@
+#cloud-config
+
+# Cloud-init configuration for nginx installation and setup
+# This script will run when the VM instance starts
+
+package_update: true
+package_upgrade: true
+
+packages:
+  - nginx
+  - curl
+
+# Create custom nginx configuration
+write_files:
+  - path: /var/www/html/index.html
+    content: |
+      <!DOCTYPE html>
+      <html lang="en">
+      <head>
+          <meta charset="UTF-8">
+          <meta name="viewport" content="width=device-width, initial-scale=1.0">
+          <title>Nginx on GCP - Managed Instance Group</title>
+          <style>
+              body {
+                  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+                  margin: 0;
+                  padding: 20px;
+                  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                  color: white;
+                  min-height: 100vh;
+                  display: flex;
+                  flex-direction: column;
+                  justify-content: center;
+                  align-items: center;
+              }
+              .container {
+                  text-align: center;
+                  background: rgba(255, 255, 255, 0.1);
+                  padding: 40px;
+                  border-radius: 15px;
+                  backdrop-filter: blur(10px);
+                  box-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.37);
+                  border: 1px solid rgba(255, 255, 255, 0.18);
+              }
+              h1 {
+                  font-size: 2.5em;
+                  margin-bottom: 20px;
+                  text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
+              }
+              .info {
+                  background: rgba(255, 255, 255, 0.2);
+                  padding: 20px;
+                  border-radius: 10px;
+                  margin: 20px 0;
+              }
+              .timestamp {
+                  font-size: 0.9em;
+                  opacity: 0.8;
+                  margin-top: 20px;
+              }
+              .instance-info {
+                  text-align: left;
+                  background: rgba(0, 0, 0, 0.2);
+                  padding: 15px;
+                  border-radius: 8px;
+                  margin: 15px 0;
+                  font-family: monospace;
+                  font-size: 0.9em;
+              }
+          </style>
+      </head>
+      <body>
+          <div class="container">
+              <h1>🚀 Nginx on GCP</h1>
+              <div class="info">
+                  <h2>Managed Instance Group Demo</h2>
+                  <p>This nginx server is running on a Google Cloud Platform instance</p>
+                  <p>deployed using cloud-config and managed by a Managed Instance Group</p>
+              </div>
+              <div class="instance-info">
+                  <strong>Instance Details:</strong><br>
+                  Hostname: <span id="hostname">Loading...</span><br>
+                  Instance ID: <span id="instance-id">Loading...</span><br>
+                  Zone: <span id="zone">Loading...</span><br>
+                  Request Time: <span id="timestamp">Loading...</span>
+              </div>
+              <div class="timestamp">
+                  Served by nginx on Google Compute Engine
+              </div>
+          </div>
+          
+          <script>
+              // Get current timestamp
+              document.getElementById('timestamp').textContent = new Date().toLocaleString();
+              
+              // Try to get instance metadata (this will work on GCE instances)
+              function getMetadata(path, elementId) {
+                  fetch('http://metadata.google.internal/computeMetadata/v1/' + path, {
+                      headers: {'Metadata-Flavor': 'Google'}
+                  })
+                  .then(response => response.text())
+                  .then(data => {
+                      document.getElementById(elementId).textContent = data;
+                  })
+                  .catch(() => {
+                      document.getElementById(elementId).textContent = 'Not available';
+                  });
+              }
+              
+              // Get instance metadata
+              getMetadata('instance/hostname', 'hostname');
+              getMetadata('instance/id', 'instance-id');
+              getMetadata('instance/zone', 'zone');
+          </script>
+      </body>
+      </html>
+    permissions: '0644'
+    owner: www-data:www-data
+
+  - path: /etc/nginx/sites-available/default
+    content: |
+      server {
+          listen 80 default_server;
+          listen [::]:80 default_server;
+          
+          root /var/www/html;
+          index index.html index.htm index.nginx-debian.html;
+          
+          server_name _;
+          
+          # Health check endpoint
+          location /health {
+              access_log off;
+              return 200 "healthy\n";
+              add_header Content-Type text/plain;
+          }
+          
+          # Main location
+          location / {
+              try_files $uri $uri/ =404;
+              
+              # Add headers for load balancer
+              add_header X-Served-By $hostname;
+              add_header X-Instance-Zone $http_x_goog_instance_zone;
+          }
+          
+          # Disable server tokens for security
+          server_tokens off;
+      }
+    permissions: '0644'
+    owner: root:root
+
+# Commands to run after packages are installed
+runcmd:
+  # Enable and start nginx
+  - systemctl enable nginx
+  - systemctl start nginx
+  
+  # Configure firewall to allow HTTP traffic
+  - ufw allow 'Nginx Full'
+  - ufw --force enable
+  
+  # Create a simple health check script
+  - |
+    cat > /usr/local/bin/health-check.sh << 'EOF'
+    #!/bin/bash
+    curl -f http://localhost/health > /dev/null 2>&1
+    exit $?
+    EOF
+  - chmod +x /usr/local/bin/health-check.sh
+  
+  # Log deployment completion
+  - echo "Nginx cloud-config deployment completed at $(date)" >> /var/log/cloud-init-deployment.log
+
+# Final message
+final_message: |
+  Nginx has been successfully installed and configured!
+  The server is now ready to serve traffic on port 80.
+  Health check endpoint available at /health

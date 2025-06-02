@@ -1,0 +1,48 @@
+#cloud-config
+package_update: true
+packages:
+  - nginx
+
+write_files:
+  - path: /var/www/html/index.html
+    content: |
+      <!DOCTYPE html>
+      <html>
+      <head>
+          <title>Welcome to Nginx on GCP</title>
+      </head>
+      <body>
+          <h1>Hello from Nginx!</h1>
+          <p>Instance: $(hostname)</p>
+          <p>This server is running on Google Cloud Platform</p>
+      </body>
+      </html>
+    permissions: '0644'
+
+  - path: /etc/nginx/sites-available/default
+    content: |
+      server {
+          listen 80 default_server;
+          listen [::]:80 default_server;
+          
+          root /var/www/html;
+          index index.html index.htm index.nginx-debian.html;
+          
+          server_name _;
+          
+          location / {
+              try_files $uri $uri/ =404;
+          }
+          
+          location /health {
+              access_log off;
+              return 200 "healthy\n";
+              add_header Content-Type text/plain;
+          }
+      }
+    permissions: '0644'
+
+runcmd:
+  - systemctl enable nginx
+  - systemctl start nginx
+  - ufw allow 'Nginx Full'
